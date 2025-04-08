@@ -1,5 +1,3 @@
-
-
 local ignoredPlayers = {} -- Таблица для хранения игнорируемых игроков
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -16,6 +14,36 @@ local DISCORD_COLORS = {
     ErrorColor = Color3.fromRGB(240, 71, 71),
     SuccessColor = Color3.fromRGB(67, 181, 129)
 }
+
+local function enableTouchDragging(frame)
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+
+    UserInputService.TouchMoved:Connect(function(input)
+        if dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    UserInputService.TouchEnded:Connect(function(input)
+        dragging = false
+    end)
+end
 
 local ROTATION_MODES = {
     "Circle",
@@ -61,15 +89,18 @@ local function enableDragging(frame)
     local startPos = nil
 
     frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+    local inputChanged = isMobile and UserInputService.TouchMoved or UserInputService.InputChanged
+    inputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
+                         input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
             frame.Position = UDim2.new(
                 startPos.X.Scale,
@@ -80,8 +111,10 @@ local function enableDragging(frame)
         end
     end)
 
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    local inputEnded = isMobile and UserInputService.TouchEnded or UserInputService.InputEnded
+    inputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
