@@ -1,0 +1,1008 @@
+
+
+local ignoredPlayers = {} -- Таблица для хранения игнорируемых игроков
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local autoNearestEnabled = false
+
+-- Constants for styling
+local DISCORD_COLORS = {
+    Background = Color3.fromRGB(54, 57, 63),
+    SecondaryBg = Color3.fromRGB(47, 49, 54),
+    AccentColor = Color3.fromRGB(114, 137, 218),
+    TextColor = Color3.fromRGB(255, 255, 255),
+    ErrorColor = Color3.fromRGB(240, 71, 71),
+    SuccessColor = Color3.fromRGB(67, 181, 129)
+}
+
+local ROTATION_MODES = {
+    "Circle",
+    "Spiral",
+    "Figure 8",
+    "Random",
+    "Zigzag",
+    "Wave",
+    "Square",
+    "Triangle",
+    "Infinity"
+}
+
+-- Variables
+local isRotating = false
+local selectedPlayer = nil
+local rotationOffset = 5
+local rotationSpeed = 1
+local rotationAngle = 0
+local currentMode = "Circle"
+local isLocked = false
+local guiVisible = true
+local spiralHeight = 0
+local VELOCITY_SMOOTHING = 0.8
+
+-- Create main GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "EnhancedPlayerRotatorGui"
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 300, 0, 640)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -250)
+MainFrame.BackgroundColor3 = DISCORD_COLORS.Background
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+-- Make GUI draggable
+local function enableDragging(frame)
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+end
+
+-- Title bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 30)
+TitleBar.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+-- Add gradient effect to TitleBar
+local UIGradient = Instance.new("UIGradient")
+UIGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 57, 63)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(64, 67, 73)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(54, 57, 63))
+})
+UIGradient.Parent = TitleBar
+
+-- Animate gradient
+local gradientRotation = 0
+spawn(function()
+    while wait() do
+        gradientRotation = gradientRotation + 1
+        if gradientRotation >= 360 then
+            gradientRotation = 0
+        end
+        UIGradient.Rotation = gradientRotation
+    end
+end)
+
+-- Main title text
+local TitleText = Instance.new("TextLabel")
+TitleText.Name = "TitleText"
+TitleText.Size = UDim2.new(1, -30, 1, 0)
+TitleText.Position = UDim2.new(0, 10, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "Almighty.acc (autofarm)"
+TitleText.TextColor3 = DISCORD_COLORS.TextColor
+TitleText.TextSize = 13
+TitleText.Font = Enum.Font.GothamBold
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.TextTransparency = 1  -- Start fully transparent
+TitleText.Parent = TitleBar
+
+-- Create stroke effect for main text
+local TextStroke = Instance.new("UIStroke")
+TextStroke.Color = Color3.fromRGB(114, 137, 218)
+TextStroke.Thickness = 1
+TextStroke.Transparency = 0.5
+TextStroke.Parent = TitleText
+
+
+
+-- Create subtitle with typing effect
+local SubtitleText = Instance.new("TextLabel")
+SubtitleText.Name = "SubtitleText"
+SubtitleText.Size = UDim2.new(1, -30, 1, 0)
+SubtitleText.Position = UDim2.new(0, 10, 0.65, 0)
+SubtitleText.BackgroundTransparency = 1
+SubtitleText.Text = "by ilyatracher"
+SubtitleText.TextColor3 = Color3.fromRGB(114, 137, 218)
+SubtitleText.TextSize = 12
+SubtitleText.Font = Enum.Font.GothamSemibold
+SubtitleText.TextXAlignment = Enum.TextXAlignment.Left
+SubtitleText.TextTransparency = 1
+SubtitleText.Parent = TitleBar
+
+-- Function to fade text in and out
+local function fadeTextInOut(textLabel, fadeInTime, stayTime, fadeOutTime)
+    while true do
+        -- Fade in
+        for i = 1, 0, -0.1 do
+            textLabel.TextTransparency = i
+            wait(fadeInTime * 0.1)
+        end
+        
+        -- Stay visible
+        wait(stayTime)
+        
+        -- Fade out
+        for i = 0, 1, 0.1 do
+            textLabel.TextTransparency = i
+            wait(fadeOutTime * 0.1)
+        end
+        
+        -- Wait before next cycle
+        wait(1)
+    end
+end
+
+-- Function to create typing effect with fade
+local function typeTextWithFade(initialText, additionalText, delay)
+    while true do
+        -- Reset text
+        SubtitleText.Text = initialText
+        SubtitleText.TextTransparency = 1
+        
+        -- Fade in initial text
+        for i = 1, 0, -0.1 do
+            SubtitleText.TextTransparency = i
+            wait(0.03)
+        end
+        
+        -- Wait before typing additional text
+        wait(0.5)
+        
+        -- Type out additional text
+        local currentText = initialText
+        for i = 1, #additionalText do
+            currentText = currentText .. additionalText:sub(i,i)
+            SubtitleText.Text = currentText
+            wait(delay)
+        end
+        
+        -- Keep full text visible for a while
+        wait(2)
+        
+        -- Fade out
+        for i = 0, 1, 0.1 do
+            SubtitleText.TextTransparency = i
+            wait(0.03)
+        end
+        
+        -- Wait before next cycle
+        wait(1)
+    end
+end
+
+-- Create rainbow effect for subtitle
+local function updateRainbowEffect()
+    local tick = 0
+    while wait() do
+        tick = tick + 0.01
+        SubtitleText.TextColor3 = Color3.fromHSV(math.abs(math.sin(tick)), 0.8, 1)
+    end
+end
+
+-- Start all animations
+spawn(function()
+    fadeTextInOut(TitleText, 0.05, 3, 0.05)
+end)
+
+spawn(function()
+    typeTextWithFade("by ilyatracher ", "| premium user", 0.1)
+end)
+
+spawn(updateRainbowEffect)
+
+-- Add hover effect for TitleBar
+local function createHoverEffect()
+    local isHovering = false
+    
+    TitleBar.MouseEnter:Connect(function()
+        isHovering = true
+        for i = 0, 0.2, 0.02 do
+            if not isHovering then break end
+            TitleBar.BackgroundColor3 = DISCORD_COLORS.SecondaryBg:Lerp(DISCORD_COLORS.AccentColor, i)
+            wait()
+        end
+    end)
+    
+    TitleBar.MouseLeave:Connect(function()
+        isHovering = false
+        for i = 0.2, 0, -0.02 do
+            TitleBar.BackgroundColor3 = DISCORD_COLORS.SecondaryBg:Lerp(DISCORD_COLORS.AccentColor, i)
+            wait()
+        end
+    end)
+end
+
+createHoverEffect()
+
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Name = "ContentFrame"
+ContentFrame.Size = UDim2.new(1, -20, 1, -40)
+ContentFrame.Position = UDim2.new(0, 10, 0, 35)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+-- Теперь создаем AutoNearestButton
+local AutoNearestButton = Instance.new("TextButton")
+AutoNearestButton.Size = UDim2.new(1, 0, 0, 30)
+AutoNearestButton.Position = UDim2.new(0, 0, 0, 565) -- Обновите позицию по необходимости
+AutoNearestButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+AutoNearestButton.Text = "Auto Nearest: OFF"
+AutoNearestButton.TextColor3 = DISCORD_COLORS.TextColor
+AutoNearestButton.TextSize = 14
+AutoNearestButton.Font = Enum.Font.GothamBold
+AutoNearestButton.Parent = ContentFrame
+
+-- Create timestamp display
+local TimeStampText = Instance.new("TextLabel")
+TimeStampText.Name = "TimeStampText"
+TimeStampText.Size = UDim2.new(0, 200, 0, 20)
+TimeStampText.Position = UDim2.new(1, -210, 0, 5)
+TimeStampText.BackgroundTransparency = 1
+TimeStampText.TextColor3 = Color3.fromRGB(185, 187, 190)
+TimeStampText.TextSize = 11
+TimeStampText.Font = Enum.Font.GothamSemibold
+TimeStampText.TextXAlignment = Enum.TextXAlignment.Right
+TimeStampText.Parent = TitleBar
+
+-- Update timestamp
+spawn(function()
+    while wait(1) do
+        local date = os.date("!*t")  -- Use UTC time
+        TimeStampText.Text = string.format(
+            "%04d-%02d-%02d %02d:%02d:%02d UTC", 
+            date.year, date.month, date.day, 
+            date.hour, date.min, date.sec
+        )
+    end
+end)
+
+-- Content container
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Name = "ContentFrame"
+ContentFrame.Size = UDim2.new(1, -20, 1, -40)
+ContentFrame.Position = UDim2.new(0, 10, 0, 35)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+-- Player selector
+local PlayerLabel = Instance.new("TextLabel")
+PlayerLabel.Size = UDim2.new(1, 0, 0, 20)
+PlayerLabel.BackgroundTransparency = 1
+PlayerLabel.Text = "Select Target Player:"
+PlayerLabel.TextColor3 = DISCORD_COLORS.TextColor
+PlayerLabel.TextSize = 14
+PlayerLabel.Font = Enum.Font.GothamSemibold
+PlayerLabel.TextXAlignment = Enum.TextXAlignment.Left
+PlayerLabel.Parent = ContentFrame
+
+local PlayerDropdown = Instance.new("TextButton")
+PlayerDropdown.Size = UDim2.new(1, 0, 0, 30)
+PlayerDropdown.Position = UDim2.new(0, 0, 0, 25)
+PlayerDropdown.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+PlayerDropdown.Text = "Select Player"
+PlayerDropdown.TextColor3 = DISCORD_COLORS.TextColor
+PlayerDropdown.TextSize = 14
+PlayerDropdown.Font = Enum.Font.Gotham
+PlayerDropdown.Parent = ContentFrame
+
+-- Rotation mode selector
+local ModeLabel = Instance.new("TextLabel")
+ModeLabel.Size = UDim2.new(1, 0, 0, 20)
+ModeLabel.Position = UDim2.new(0, 0, 0, 70)
+ModeLabel.BackgroundTransparency = 1
+ModeLabel.Text = "Rotation Mode:"
+ModeLabel.TextColor3 = DISCORD_COLORS.TextColor
+ModeLabel.TextSize = 14
+ModeLabel.Font = Enum.Font.GothamSemibold
+ModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ModeLabel.Parent = ContentFrame
+
+local ModeDropdown = Instance.new("TextButton")
+ModeDropdown.Size = UDim2.new(1, 0, 0, 30)
+ModeDropdown.Position = UDim2.new(0, 0, 0, 95)
+ModeDropdown.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+ModeDropdown.Text = "Circle"
+ModeDropdown.TextColor3 = DISCORD_COLORS.TextColor
+ModeDropdown.TextSize = 14
+ModeDropdown.Font = Enum.Font.Gotham
+ModeDropdown.Parent = ContentFrame
+
+-- Offset slider
+local OffsetLabel = Instance.new("TextLabel")
+OffsetLabel.Size = UDim2.new(1, 0, 0, 20)
+OffsetLabel.Position = UDim2.new(0, 0, 0, 140)
+OffsetLabel.BackgroundTransparency = 1
+OffsetLabel.Text = "Rotation Offset (studs):"
+OffsetLabel.TextColor3 = DISCORD_COLORS.TextColor
+OffsetLabel.TextSize = 14
+OffsetLabel.Font = Enum.Font.GothamSemibold
+OffsetLabel.TextXAlignment = Enum.TextXAlignment.Left
+OffsetLabel.Parent = ContentFrame
+
+local OffsetFrame = Instance.new("Frame")
+OffsetFrame.Size = UDim2.new(1, 0, 0, 30)
+OffsetFrame.Position = UDim2.new(0, 0, 0, 165)
+OffsetFrame.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+OffsetFrame.Parent = ContentFrame
+
+local OffsetValue = Instance.new("TextBox")
+OffsetValue.Size = UDim2.new(0, 50, 1, -6)
+OffsetValue.Position = UDim2.new(1, -55, 0, 3)
+OffsetValue.BackgroundColor3 = DISCORD_COLORS.Background
+OffsetValue.Text = "5"
+OffsetValue.TextColor3 = DISCORD_COLORS.TextColor
+OffsetValue.TextSize = 14
+OffsetValue.Font = Enum.Font.Gotham
+OffsetValue.Parent = OffsetFrame
+
+-- Speed slider
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(1, 0, 0, 20)
+SpeedLabel.Position = UDim2.new(0, 0, 0, 210)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "Rotation Speed:"
+SpeedLabel.TextColor3 = DISCORD_COLORS.TextColor
+SpeedLabel.TextSize = 14
+SpeedLabel.Font = Enum.Font.GothamSemibold
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = ContentFrame
+
+local SpeedFrame = Instance.new("Frame")
+SpeedFrame.Size = UDim2.new(1, 0, 0, 30)
+SpeedFrame.Position = UDim2.new(0, 0, 0, 235)
+SpeedFrame.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+SpeedFrame.Parent = ContentFrame
+
+local SpeedValue = Instance.new("TextBox")
+SpeedValue.Size = UDim2.new(0, 50, 1, -6)
+SpeedValue.Position = UDim2.new(1, -55, 0, 3)
+SpeedValue.BackgroundColor3 = DISCORD_COLORS.Background
+SpeedValue.Text = "1"
+SpeedValue.TextColor3 = DISCORD_COLORS.TextColor
+SpeedValue.TextSize = 14
+SpeedValue.Font = Enum.Font.Gotham
+SpeedValue.Parent = SpeedFrame
+
+-- Lock button
+local LockButton = Instance.new("TextButton")
+LockButton.Size = UDim2.new(1, 0, 0, 40)
+LockButton.Position = UDim2.new(0, 0, 0, 280)
+LockButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+LockButton.Text = "Lock View"
+LockButton.TextColor3 = DISCORD_COLORS.TextColor
+LockButton.TextSize = 16
+LockButton.Font = Enum.Font.GothamBold
+LockButton.Parent = ContentFrame
+
+-- Start/Stop button
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(1, 0, 0, 40)
+ToggleButton.Position = UDim2.new(0, 0, 0, 330)
+ToggleButton.BackgroundColor3 = DISCORD_COLORS.AccentColor
+ToggleButton.Text = "Start Rotating"
+ToggleButton.TextColor3 = DISCORD_COLORS.TextColor
+ToggleButton.TextSize = 16
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Parent = ContentFrame
+
+-- Delete GUI button
+local DeleteButton = Instance.new("TextButton")
+DeleteButton.Size = UDim2.new(1, 0, 0, 40)
+DeleteButton.Position = UDim2.new(0, 0, 0, 380)
+DeleteButton.BackgroundColor3 = DISCORD_COLORS.ErrorColor
+DeleteButton.Text = "Delete GUI"
+DeleteButton.TextColor3 = DISCORD_COLORS.TextColor
+DeleteButton.TextSize = 16
+DeleteButton.Font = Enum.Font.GothamBold
+DeleteButton.Parent = ContentFrame
+
+local NearestButton = Instance.new("TextButton")
+NearestButton.Size = UDim2.new(1, 0, 0, 30)
+NearestButton.Position = UDim2.new(0, 0, 0, 60)
+NearestButton.BackgroundColor3 = DISCORD_COLORS.AccentColor
+NearestButton.Text = "Select Nearest Player"
+NearestButton.TextColor3 = DISCORD_COLORS.TextColor
+NearestButton.TextSize = 14
+NearestButton.Font = Enum.Font.GothamBold
+NearestButton.Parent = ContentFrame
+
+-- Adjust positions of other elements
+ModeLabel.Position = UDim2.new(0, 0, 0, 105)
+ModeDropdown.Position = UDim2.new(0, 0, 0, 130)
+OffsetLabel.Position = UDim2.new(0, 0, 0, 175)
+OffsetFrame.Position = UDim2.new(0, 0, 0, 200)
+SpeedLabel.Position = UDim2.new(0, 0, 0, 245)
+SpeedFrame.Position = UDim2.new(0, 0, 0, 270)
+LockButton.Position = UDim2.new(0, 0, 0, 315)
+ToggleButton.Position = UDim2.new(0, 0, 0, 365)
+DeleteButton.Position = UDim2.new(0, 0, 0, 415)
+
+local function findNearestPlayer()
+    local localPlayer = Players.LocalPlayer
+    local localCharacter = localPlayer.Character
+    if not localCharacter then return end
+    
+    local localRoot = localCharacter:FindFirstChild("HumanoidRootPart")
+    if not localRoot then return end
+    
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        -- Пропускаем локального игрока и игнорируемых
+        if player ~= localPlayer and not ignoredPlayers[player] then
+            local character = player.Character
+            if character then
+                local root = character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local distance = (root.Position - localRoot.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    
+    if nearestPlayer then
+        selectedPlayer = nearestPlayer
+        PlayerDropdown.Text = nearestPlayer.Name
+    end
+end
+
+-- Кнопка игнорирования выбранного игрока
+local IgnoreButton = Instance.new("TextButton")
+IgnoreButton.Size = UDim2.new(1, 0, 0, 30)
+IgnoreButton.Position = UDim2.new(0, 0, 0, 470)
+IgnoreButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+IgnoreButton.Text = "Ignore Selected Player"
+IgnoreButton.TextColor3 = DISCORD_COLORS.ErrorColor
+IgnoreButton.TextSize = 14
+IgnoreButton.Font = Enum.Font.GothamBold
+IgnoreButton.Parent = ContentFrame
+
+-- Кнопка сброса всех игноров
+local UnignoreAllButton = Instance.new("TextButton")
+UnignoreAllButton.Size = UDim2.new(1, 0, 0, 30)
+UnignoreAllButton.Position = UDim2.new(0, 0, 0, 525)
+UnignoreAllButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+UnignoreAllButton.Text = "Unignore All Players"
+UnignoreAllButton.TextColor3 = DISCORD_COLORS.SuccessColor
+UnignoreAllButton.TextSize = 14
+UnignoreAllButton.Font = Enum.Font.GothamBold
+UnignoreAllButton.Parent = ContentFrame
+
+
+-- При клике на кнопку игнорирования
+IgnoreButton.MouseButton1Click:Connect(function()
+    if selectedPlayer then
+        ignoredPlayers[selectedPlayer] = true
+        PlayerDropdown.Text = "Select Player"
+        selectedPlayer = nil
+        updatePlayerList() -- Обновляем список игроков
+    end
+end)
+
+-- При клике на кнопку сброса игноров
+UnignoreAllButton.MouseButton1Click:Connect(function()
+    ignoredPlayers = {} -- Очищаем таблицу игноров
+    updatePlayerList() -- Обновляем список игроков
+end)
+
+
+
+NearestButton.MouseButton1Click:Connect(findNearestPlayer)
+
+local function waveRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    return Vector3.new(
+        targetPosition.X + math.cos(rotationAngle) * rotationOffset,
+        targetPosition.Y + math.sin(rotationAngle * 2) * (rotationOffset / 2),
+        targetPosition.Z + math.sin(rotationAngle) * rotationOffset
+    )
+end
+
+local function squareRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    local angle = rotationAngle % (math.pi * 2)
+    local x, z = 0, 0
+    
+    if angle < math.pi/2 then
+        x = rotationOffset
+        z = angle/(math.pi/2) * rotationOffset
+    elseif angle < math.pi then
+        x = rotationOffset - (angle-math.pi/2)/(math.pi/2) * (rotationOffset*2)
+        z = rotationOffset
+    elseif angle < math.pi*3/2 then
+        x = -rotationOffset
+        z = rotationOffset - (angle-math.pi)/(math.pi/2) * (rotationOffset*2)
+    else
+        x = -rotationOffset + (angle-math.pi*3/2)/(math.pi/2) * (rotationOffset*2)
+        z = -rotationOffset
+    end
+    
+    return Vector3.new(
+        targetPosition.X + x,
+        targetPosition.Y,
+        targetPosition.Z + z
+    )
+end
+
+local function triangleRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    local angle = rotationAngle % (math.pi * 2)
+    local section = math.floor(angle / (math.pi * 2/3))
+    local sectionAngle = angle - section * (math.pi * 2/3)
+    local progress = sectionAngle / (math.pi * 2/3)
+    
+    local points = {
+        Vector3.new(rotationOffset, 0, 0),
+        Vector3.new(-rotationOffset/2, 0, rotationOffset),
+        Vector3.new(-rotationOffset/2, 0, -rotationOffset)
+    }
+    
+    local current = points[section + 1]
+    local next = points[section + 2] or points[1]
+    
+    return Vector3.new(
+        targetPosition.X + current.X + (next.X - current.X) * progress,
+        targetPosition.Y,
+        targetPosition.Z + current.Z + (next.Z - current.Z) * progress
+    )
+end
+
+local function infinityRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    local t = rotationAngle
+    return Vector3.new(
+        targetPosition.X + math.sin(t) * rotationOffset / (1 + math.cos(t)^2),
+        targetPosition.Y,
+        targetPosition.Z + math.sin(t) * math.cos(t) * rotationOffset / (1 + math.cos(t)^2)
+    )
+end
+
+-- Rotation methods
+local function circleRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    return Vector3.new(
+        targetPosition.X + math.cos(rotationAngle) * rotationOffset,
+        targetPosition.Y,
+        targetPosition.Z + math.sin(rotationAngle) * rotationOffset
+    )
+end
+
+local function spiralRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    spiralHeight = spiralHeight + 0.1
+    if spiralHeight > 10 then spiralHeight = 0 end
+    return Vector3.new(
+        targetPosition.X + math.cos(rotationAngle) * rotationOffset,
+        targetPosition.Y + spiralHeight,
+        targetPosition.Z + math.sin(rotationAngle) * rotationOffset
+    )
+end
+
+local function figure8Rotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    return Vector3.new(
+        targetPosition.X + math.cos(rotationAngle) * rotationOffset,
+        targetPosition.Y,
+        targetPosition.Z + math.sin(2 * rotationAngle) * rotationOffset / 2
+    )
+end
+
+local function randomRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed + math.random(-2, 2))
+    return Vector3.new(
+        targetPosition.X + math.cos(rotationAngle) * (rotationOffset + math.random(-2, 2)),
+        targetPosition.Y + math.random(-1, 1),
+        targetPosition.Z + math.sin(rotationAngle) * (rotationOffset + math.random(-2, 2))
+    )
+end
+
+local function zigzagRotation(targetPosition)
+    rotationAngle = rotationAngle + math.rad(rotationSpeed)
+    local zigzag = math.sin(rotationAngle * 2) * 3
+    return Vector3.new(
+        targetPosition.X + math.cos(rotationAngle) * rotationOffset + zigzag,
+        targetPosition.Y,
+        targetPosition.Z + math.sin(rotationAngle) * rotationOffset + zigzag
+    )
+end
+
+-- Function to update player list
+local function updatePlayerList()
+    local playerList = Players:GetPlayers()
+    local dropdownMenu = Instance.new("Frame")
+    dropdownMenu.Name = "DropdownMenu"
+    dropdownMenu.Size = UDim2.new(1, 0, 0, #playerList * 30)
+    dropdownMenu.Position = UDim2.new(0, 0, 1, 0)
+    dropdownMenu.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+    dropdownMenu.Visible = false
+    dropdownMenu.ZIndex = 10
+    dropdownMenu.Parent = PlayerDropdown
+
+    for i, player in ipairs(playerList) do
+        if player ~= Players.LocalPlayer and not ignoredPlayers[player] then
+            local playerButton = Instance.new("TextButton")
+            playerButton.Size = UDim2.new(1, 0, 0, 30)
+            playerButton.Position = UDim2.new(0, 0, 0, (i-1) * 30)
+            playerButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+            playerButton.Text = player.Name
+            playerButton.TextColor3 = DISCORD_COLORS.TextColor
+            playerButton.TextSize = 14
+            playerButton.Font = Enum.Font.Gotham
+            playerButton.Parent = dropdownMenu
+            playerButton.ZIndex = 10
+
+            playerButton.MouseButton1Click:Connect(function()
+                selectedPlayer = player
+                PlayerDropdown.Text = player.Name
+                dropdownMenu.Visible = false
+            end)
+        end
+    end
+
+    PlayerDropdown.MouseButton1Click:Connect(function()
+        dropdownMenu.Visible = not dropdownMenu.Visible
+    end)
+end
+
+-- Update rotation mode list
+local function updateModeList()
+    local modeMenu = Instance.new("Frame")
+    modeMenu.Name = "ModeMenu"
+    modeMenu.Size = UDim2.new(1, 0, 0, #ROTATION_MODES * 30)
+    modeMenu.Position = UDim2.new(0, 0, 1, 0)
+    modeMenu.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+    modeMenu.Visible = false
+    modeMenu.ZIndex = 10
+    modeMenu.Parent = ModeDropdown
+
+    for i, mode in ipairs(ROTATION_MODES) do
+        local modeButton = Instance.new("TextButton")
+        modeButton.Size = UDim2.new(1, 0, 0, 30)
+        modeButton.Position = UDim2.new(0, 0, 0, (i-1) * 30)
+        modeButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+        modeButton.Text = mode
+        modeButton.TextColor3 = DISCORD_COLORS.TextColor
+        modeButton.TextSize = 14
+        modeButton.Font = Enum.Font.Gotham
+        modeButton.Parent = modeMenu
+        modeButton.ZIndex = 10
+
+        modeButton.MouseButton1Click:Connect(function()
+            currentMode = mode
+            ModeDropdown.Text = mode
+            modeMenu.Visible = false
+        end)
+    end
+
+    ModeDropdown.MouseButton1Click:Connect(function()
+        modeMenu.Visible = not modeMenu.Visible
+    end)
+end
+
+-- Function to perform rotation
+local function performRotation()
+    if not selectedPlayer then return end
+    
+    local targetPlayer = Players:FindFirstChild(selectedPlayer.Name)
+    if not targetPlayer then return end
+    
+    local targetCharacter = targetPlayer.Character
+    local localCharacter = Players.LocalPlayer.Character
+    if not targetCharacter or not localCharacter then return end
+    
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+    local localRoot = localCharacter:FindFirstChild("HumanoidRootPart")
+    if not targetRoot or not localRoot then return end
+    
+    local targetPosition = targetRoot.Position
+    
+    local newPosition
+    if currentMode == "Circle" then
+        newPosition = circleRotation(targetPosition)
+    elseif currentMode == "Spiral" then
+        newPosition = spiralRotation(targetPosition)
+    elseif currentMode == "Figure 8" then
+        newPosition = figure8Rotation(targetPosition)
+    elseif currentMode == "Random" then
+        newPosition = randomRotation(targetPosition)
+    elseif currentMode == "Zigzag" then
+        newPosition = zigzagRotation(targetPosition)
+    elseif currentMode == "Wave" then
+        newPosition = waveRotation(targetPosition)
+    elseif currentMode == "Square" then
+        newPosition = squareRotation(targetPosition)
+    elseif currentMode == "Triangle" then
+        newPosition = triangleRotation(targetPosition)
+    elseif currentMode == "Infinity" then
+        newPosition = infinityRotation(targetPosition)
+    end
+    
+    if newPosition then
+        localRoot.CFrame = CFrame.new(newPosition, targetPosition)
+    end
+end
+
+-- Function to toggle rotation
+local function toggleRotation()
+    isRotating = not isRotating
+    ToggleButton.Text = isRotating and "Stop Rotating" or "Start Rotating"
+    ToggleButton.BackgroundColor3 = isRotating and DISCORD_COLORS.ErrorColor or DISCORD_COLORS.AccentColor
+    
+    if isRotating then
+        spawn(function()
+            while isRotating and ScreenGui.Parent ~= nil do
+                if selectedPlayer then
+                    -- Handle player leaving
+                    if not Players:FindFirstChild(selectedPlayer.Name) then
+                        local player = Players:GetPlayerByUserId(selectedPlayer.UserId)
+                        if player then
+                            selectedPlayer = player
+                        end
+                    end
+                    
+                    performRotation()
+                end
+                -- Remove RunService.Heartbeat:Wait() for faster updates
+                game:GetService("RunService").RenderStepped:Wait()
+            end
+        end)
+    end
+end
+
+-- Function to toggle player lock
+local function toggleLock()
+    isLocked = not isLocked
+    LockButton.Text = isLocked and "Unlock View" or "Lock View"
+    LockButton.BackgroundColor3 = isLocked and DISCORD_COLORS.SuccessColor or DISCORD_COLORS.SecondaryBg
+    
+    if isLocked then
+        spawn(function()
+            while isLocked and ScreenGui.Parent ~= nil do
+                if selectedPlayer then
+                    -- Handle player leaving
+                    if not Players:FindFirstChild(selectedPlayer.Name) then
+                        local player = Players:GetPlayerByUserId(selectedPlayer.UserId)
+                        if player then
+                            selectedPlayer = player
+                        end
+                    end
+                    
+                    local targetCharacter = selectedPlayer.Character
+                    local localCharacter = Players.LocalPlayer.Character
+                    
+                    if targetCharacter and localCharacter then
+                        local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+                        local localRoot = localCharacter:FindFirstChild("HumanoidRootPart")
+                        
+                        if targetRoot and localRoot then
+                            local targetPosition = targetRoot.Position
+                            local characterPosition = localRoot.Position
+                            -- Directly set CFrame for instant movement
+                            localRoot.CFrame = CFrame.new(characterPosition, targetPosition)
+                        end
+                    end
+                end
+                -- Remove RunService.Heartbeat:Wait() for faster updates
+                game:GetService("RunService").RenderStepped:Wait()
+            end
+        end)
+    end
+end
+
+local function findNearestPlayer()
+    local localPlayer = Players.LocalPlayer
+    local localCharacter = localPlayer.Character
+    if not localCharacter then return end
+    
+    local localRoot = localCharacter:FindFirstChild("HumanoidRootPart")
+    if not localRoot then return end
+    
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= localPlayer then
+            local character = player.Character
+            if character then
+                local root = character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local distance = (root.Position - localRoot.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    
+    if nearestPlayer then
+        selectedPlayer = nearestPlayer
+        PlayerDropdown.Text = nearestPlayer.Name
+    end
+end
+
+-- Function to update auto nearest player
+local function updateAutoNearest()
+    while autoNearestEnabled and ScreenGui.Parent ~= nil do
+        findNearestPlayer()
+        wait(0.5)  -- Update every half second
+    end
+end
+
+-- Auto Nearest Button Click Handler
+AutoNearestButton.MouseButton1Click:Connect(function()
+    autoNearestEnabled = not autoNearestEnabled
+    AutoNearestButton.Text = "Auto Nearest: " .. (autoNearestEnabled and "ON" or "OFF")
+    AutoNearestButton.BackgroundColor3 = autoNearestEnabled and DISCORD_COLORS.SuccessColor or DISCORD_COLORS.SecondaryBg
+    
+    if autoNearestEnabled then
+        spawn(updateAutoNearest)
+    end
+end)
+
+NearestButton.MouseButton1Click:Connect(findNearestPlayer)
+
+-- Connect button events
+ToggleButton.MouseButton1Click:Connect(toggleRotation)
+LockButton.MouseButton1Click:Connect(toggleLock)
+DeleteButton.MouseButton1Click:Connect(function()
+    isRotating = false
+    isLocked = false
+    ScreenGui:Destroy()
+end)
+
+-- Toggle GUI visibility with Insert key
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Insert then
+        guiVisible = not guiVisible
+        MainFrame.Visible = guiVisible
+    end
+end)
+
+-- Update offset and speed values
+OffsetValue.FocusLost:Connect(function()
+    local newValue = tonumber(OffsetValue.Text)
+    if newValue then
+        rotationOffset = math.clamp(newValue, 1, 100)
+        OffsetValue.Text = tostring(rotationOffset)
+    else
+        OffsetValue.Text = tostring(rotationOffset)
+    end
+end)
+
+SpeedValue.FocusLost:Connect(function()
+    local newValue = tonumber(SpeedValue.Text)
+    if newValue then
+        rotationSpeed = math.max(0.1, newValue)  -- Only keep the minimum limit
+        SpeedValue.Text = tostring(rotationSpeed)
+    else
+        SpeedValue.Text = tostring(rotationSpeed)
+    end
+end)
+
+local function removePlayerFromDropdown(player)
+    local dropdownMenu = PlayerDropdown:FindFirstChild("DropdownMenu")
+    if dropdownMenu then
+        local playerButton = dropdownMenu:FindFirstChild(player.Name)
+        if playerButton then
+            playerButton:Destroy()
+            -- Adjust size of dropdown menu
+            dropdownMenu.Size = UDim2.new(1, 0, 0, #dropdownMenu:GetChildren() * 30)
+            -- Update positions of remaining buttons
+            local yOffset = 0
+            for _, button in pairs(dropdownMenu:GetChildren()) do
+                if button:IsA("TextButton") then
+                    button.Position = UDim2.new(0, 0, 0, yOffset)
+                    yOffset = yOffset + 30
+                end
+            end
+        end
+    end
+end
+
+-- Function to add player to dropdown
+local function addPlayerToDropdown(player)
+    if player == Players.LocalPlayer then return end
+    
+    local dropdownMenu = PlayerDropdown:FindFirstChild("DropdownMenu")
+    if dropdownMenu then
+        -- Check if player button already exists
+        if dropdownMenu:FindFirstChild(player.Name) then return end
+        
+        local playerButton = Instance.new("TextButton")
+        playerButton.Name = player.Name
+        playerButton.Size = UDim2.new(1, 0, 0, 30)
+        playerButton.BackgroundColor3 = DISCORD_COLORS.SecondaryBg
+        playerButton.Text = player.Name
+        playerButton.TextColor3 = DISCORD_COLORS.TextColor
+        playerButton.TextSize = 14
+        playerButton.Font = Enum.Font.Gotham
+        playerButton.ZIndex = 10
+        
+        -- Update position
+        local numChildren = #dropdownMenu:GetChildren()
+        playerButton.Position = UDim2.new(0, 0, 0, numChildren * 30)
+        playerButton.Parent = dropdownMenu
+        
+        -- Update dropdown menu size
+        dropdownMenu.Size = UDim2.new(1, 0, 0, (numChildren + 1) * 30)
+        
+        playerButton.MouseButton1Click:Connect(function()
+            selectedPlayer = player
+            PlayerDropdown.Text = player.Name
+            dropdownMenu.Visible = false
+        end)
+    end
+end
+
+-- Connect PlayerAdded and PlayerRemoving events
+Players.PlayerAdded:Connect(function(player)
+    addPlayerToDropdown(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    removePlayerFromDropdown(player)
+    -- If the removed player was selected, reset selection
+    if selectedPlayer and selectedPlayer.Name == player.Name then
+        selectedPlayer = nil
+        PlayerDropdown.Text = "Select Player"
+    end
+end)
+
+-- Enable dragging
+enableDragging(MainFrame)
+
+-- Initialize
+updatePlayerList()
+updateModeList()
+ScreenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
