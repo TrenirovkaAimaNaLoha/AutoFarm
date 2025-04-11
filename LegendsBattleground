@@ -831,6 +831,44 @@ local function toggleRotation()
     end
 end
 
+
+local function updateLockViewLine()
+    if isLocked and selectedPlayer then
+        local targetCharacter = selectedPlayer.Character
+        local localCharacter = Players.LocalPlayer.Character
+        
+        if targetCharacter and localCharacter then
+            local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+            local localRoot = localCharacter:FindFirstChild("HumanoidRootPart")
+            
+            if targetRoot and localRoot then
+                local targetPosition = targetRoot.Position
+                local characterPosition = localRoot.Position
+                local direction = (targetPosition - characterPosition).unit
+
+                -- Set the position and direction of the line
+                Line.Position = characterPosition + direction * 2  -- Start a little before the character
+                Line.CFrame = CFrame.new(characterPosition, targetPosition)
+                Line.Size = Vector3.new(0.1, 0.1, (targetPosition - characterPosition).Magnitude) -- Adjust the length of the line
+            end
+        end
+    else
+        -- Clean up line when LockView is disabled
+        Line:Destroy()
+    end
+end
+
+local Line = Instance.new("Part")
+Line.Size = Vector3.new(0.1, 0.1, 0.1) -- Small part to draw a line
+Line.Anchored = true
+Line.CanCollide = false
+Line.Transparency = 0.5
+Line.BrickColor = BrickColor.new("Bright red") -- You can choose your preferred color
+Line.Parent = game.Workspace
+
+-- Update the line every frame while the view is locked
+game:GetService("RunService").RenderStepped:Connect(updateLockViewLine)
+
 -- Function to toggle player lock
 local function toggleLock()
     isLocked = not isLocked
@@ -868,6 +906,11 @@ local function toggleLock()
                 game:GetService("RunService").RenderStepped:Wait()
             end
         end)
+    else
+        -- Destroy the line when Lock View is toggled off
+        if Line.Parent then
+            Line:Destroy()
+        end
     end
 end
 
